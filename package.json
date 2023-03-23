@@ -1,0 +1,30 @@
+{
+  "name": "sse-ws",
+  "version": "1.0.0",
+  "description": "",
+  "main": "server.js",
+  "scripts": {
+    "prestart": "npm install",
+    "start": "forever server.js",
+    "watch": "forever -w server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NastyaKatyushkina/sse-ws.git"
+  },
+  "author": "Anastasia",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/NastyaKatyushkina/sse-ws/issues"
+  },
+  "homepage": "https://github.com/NastyaKatyushkina/sse-ws#readme",
+  "dependencies": {
+    "forever": "^3.0.4",
+    "http-event-stream": "^0.2.0",
+    "koa": "^2.13.4",
+    "koa-body": "^4.2.0",
+    "koa-router": "^12.0.0",
+    "uuid": "^9.0.0",
+    "ws": "^8.13.0"
+  }
+}
