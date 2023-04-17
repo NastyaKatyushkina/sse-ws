@@ -1,114 +1,78 @@
-const ChatServer = require('./ChatServer');
-const http = require("http");
-const Koa = require("koa");
-const koaBody = require("koa-body");
-const Router = require('koa-router');
-const router = new Router();
-const app = new Koa();
-const chat = new ChatServer();
+const http = require("http")
+const Koa = require("koa")
+const koaBody = require("koa-body")
+const cors = require("@koa/cors")
+const WS = require("ws")
+const chatDb = require("./db")
+
+const app = new Koa()
+
+app.use(cors())
 
 app.use(
-  koaBody({
-    urlencoded: true,
-  })
-);
+	koaBody({
+		urlencoded: true
+	})
+)
 
-app.use(async (ctx, next) => {
-  const headers = { "Access-Control-Allow-Origin": "*" };
-  ctx.response.set({ ...headers });
+const server = http.createServer(app.callback())
 
-  const origin = ctx.request.get("Origin");
-  if (!origin) {
-    return await next();
-  }
+const port = process.env.PORT || 3000
 
-  if (ctx.request.method !== "OPTIONS") {
-    try {
-      return await next();
-    } catch (e) {
-      e.headers = { ...e.headers, ...headers };
-      throw e;
-    }
-  }
-  if (ctx.request.get("Access-Control-Request-Method")) {
-    ctx.response.set({
-      ...headers,
-      "Access-Control-Allow-Methods": "GET, POST, DELETE",
-    });
-    if (ctx.request.get("Access-Control-Request-Headers")) {
-      ctx.response.set(
-        "Access-Control-Allow-Headers",
-        "Origin, X-Requested-With, Content-Type, Accept, Authorization"
-      );
-    }
-    ctx.response.status = 204;
-  }
-});
+const wsServer = new WS.Server({
+	server
+})
 
-router.get('/users', async (ctx) => {
-  ctx.response.type = 200;
-  ctx.response.body = chat.getConnectedUsers();
-});
+function sendALL(data) {
+	Array.from(wsServer.clients)
+		.filter(client => client.readyState === WS.OPEN)
+		.forEach(client => client.send(JSON.stringify(data)))
+}
 
-app.use(router.routes());
-app.use(router.allowedMethods());
+wsServer.on("connection", ws => {
+	ws.on("message", request => {
+		const data = JSON.parse(request)
 
-const port = process.env.PORT || 7070;
-const server = http.createServer(app.callback());
-const WS = require('ws');
-const wsServer = new WS.Server({ server });
+		switch (data.type) {
+			case "addUser":
+				chatDb.users.push({ client: ws, name: data.user.name })
 
-wsServer.on('connection', (ws, req) => {
-  const errCallback = (err) => {
-    if (err) {
-      console.log(err);
-    }
-  };
+				sendALL({ type: "users", users: chatDb.users.filter(user => user.client.readyState === WS.OPEN).map(user => user.name) })
+				break
+			case "message":
+				chatDb.messages.push(data.message)
 
-  ws.on('message', data => {
-    let msg;
-    try { msg = JSON.parse(data) }
-    catch (e) { console.log(`Error on ${data}`) }
-    if (!msg) return;
-    if (msg.type === 'register') {
-      ws.send(JSON.stringify({ type: 'register', userID: chat.addUser(msg.userName).id }));
-      Array.from(wsServer.clients)
-          .filter(o => o.readyState === WS.OPEN)
-          .forEach(o => o.send(JSON.stringify({
-            type: 'users',
-            users: chat.getConnectedUsers(),
-          })));
-      return;
-    }
-    if (msg.type === 'getPrevious') {
-      ws.send(JSON.stringify({ type: 'previous', messages: chat.getPreviousMessages(msg.count) }), errCallback);
-      return;
-    }
-    if (msg.type === 'message') {
-      const message = chat.pushMessage(msg.userID, msg.content);
-      if (message) {
-        Array.from(wsServer.clients)
-          .filter(o => o.readyState === WS.OPEN)
-          .forEach(o => o.send(JSON.stringify({
-            message,
-            type: 'message',
-          })));
-      }
-      return;
-    }
-    ws.send(JSON.stringify({ type: 'error', message: 'unknown type of message' }), errCallback);
-  });
+				sendALL({
+					type: "message",
+					user: data.message.idParrent,
+					message: data.message
+				})
+				break
 
-  ws.on('close', data => {
-    chat.removeUser((JSON.parse(data)).userID);
-    Array.from(wsServer.clients)
-          .filter(o => o.readyState === WS.OPEN)
-          .forEach(o => o.send(JSON.stringify({
-            type: 'users',
-            users: chat.getConnectedUsers(),
-          })));
-  });
-});
+			default:
+				break
+		}
+	})
 
-server.listen(port);
-console.log(`Server is listening on port ${port}`)
+	ws.on("close", () => {
+		sendALL({ type: "users", users: chatDb.users.filter(user => user.client.readyState === WS.OPEN).map(user => user.name) })
+	})
+
+	ws.send(
+		JSON.stringify({
+			type: "init",
+			users: chatDb.users.filter(user => user.client.readyState === WS.OPEN).map(user => user.name),
+			messages: chatDb.messages
+		})
+	)
+})
+
+server.listen(port, err => {
+	if (err) {
+		console.log(err)
+
+		return
+	}
+
+	console.log("Server is listening to " + port)
+})
